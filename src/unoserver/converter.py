@@ -3,7 +3,7 @@ try:
 except ImportError:
     raise ImportError(
         "Could not find the 'uno' library. This package must be installed with a Python "
-        "installation that has a 'uno' library. This typically means you should install "
+        "installation that has a 'uno' library. This typically means you should install"
         "it with the same Python executable as your Libreoffice installation uses."
     )
 
@@ -16,6 +16,7 @@ import unohelper
 
 from com.sun.star.beans import PropertyValue
 from com.sun.star.io import XOutputStream
+import uuid
 
 logger = logging.getLogger("unoserver")
 
@@ -47,7 +48,7 @@ def get_doc_type(doc):
     # adding document types, which seems unlikely.
     raise RuntimeError(
         "The input document is of an unknown document type. This is probably a bug.\n"
-        "Please create an issue at https://github.com/unoconv/unoserver."
+        "Please create an issue at https://github.com/unoconv/unoserver ."
     )
 
 
@@ -149,6 +150,7 @@ class UnoConverter:
             input_props += (PropertyValue(Name="InputStream", Value=input_stream),)
             import_path = "private:stream"
 
+        print('---', import_path)
         document = self.desktop.loadComponentFromURL(
             import_path, "_default", 0, input_props
         )
@@ -228,7 +230,35 @@ def main():
         "--interface", default="127.0.0.1", help="The interface used by the server"
     )
     parser.add_argument("--port", default="2002", help="The port used by the server")
+
+    parser.add_argument("--start-rpc-server", action='store_true', help="Setup an xmlrpc server to allow control over this converter.")
+    parser.add_argument("--rpc-port", type = int, default = 8811,
+                        help = 'Port to use for RPC (default 8811)')
+
     args = parser.parse_args()
+
+    if args.start_rpc_server:
+        converter = UnoConverter(args.interface, args.port)
+        from xmlrpc.server import SimpleXMLRPCServer
+        # Create server
+        with SimpleXMLRPCServer(('127.0.0.1', args.rpc_port), allow_none = True) as server:
+            server.register_introspection_functions()
+            @server.register_function
+            def convert(indata=None, convert_to=None):
+                infile=None
+                outpath = f'./{uuid.uuid4()}.html'
+                result = converter.convert(
+                    inpath=infile, indata=indata.data, outpath=outpath, convert_to=convert_to
+                )
+                with open(outpath, 'rb') as o:
+                    result = o.read()
+                
+                os.remove(outpath)
+                return result
+            
+            server.serve_forever()
+
+        sys.exit()
 
     converter = UnoConverter(args.interface, args.port)
 
